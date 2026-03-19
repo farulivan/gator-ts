@@ -2,6 +2,7 @@ import { getNextFeedToFetch, markFeedAsFetched } from 'src/lib/db/queries/feeds'
 import { fetchFeed } from "../lib/rss";
 import type { Feed } from 'src/lib/db/schema';
 import { parseDuration, formatDuration } from 'src/lib/time';
+import { createPost } from 'src/lib/db/queries/posts';
 
 export async function handlerAgg(cmdName: string, ...args: string[]) {
   if (args.length !== 1) {
@@ -39,7 +40,7 @@ async function scrapeFeeds() {
     return;
   }
   console.log(`Found a feed to fetch!`);
-  scrapeFeed(feed);
+  await scrapeFeed(feed);
 }
 
 async function scrapeFeed(feed: Feed) {
@@ -47,9 +48,25 @@ async function scrapeFeed(feed: Feed) {
 
   const feedData = await fetchFeed(feed.url);
 
-  console.log(
-    `Feed ${feed.name} collected, ${feedData.channel.item.length} posts found`,
-  );
+  for (const item of feedData.channel.item) {
+    const publishedAt = parsePublishedAt(item.pubDate);
+    await createPost(item.title, item.link, item.description, publishedAt, feed.id);
+  }
+}
+
+function parsePublishedAt(pubDate: string): Date {
+  const d1 = new Date(pubDate);
+  if (!isNaN(d1.getTime())) {
+    return d1;
+  }
+
+  const normalized = pubDate.replace("GMT", "+0000");
+  const t2 = Date.parse(normalized);
+  if (!isNaN(t2)) {
+    return new Date(t2);
+  }
+
+  return new Date();
 }
 
 function handleError(err: unknown) {
